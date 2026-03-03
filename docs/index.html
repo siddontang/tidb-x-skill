@@ -75,11 +75,38 @@
 
     /* Architecture */
     .arch { margin: 3rem 0; }
-    .arch h2 { font-size: 1.5rem; margin-bottom: 1rem; }
-    .arch pre {
+    .arch h2 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+    .arch-diagram {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 1.5rem; font-size: 0.75rem;
-      overflow-x: auto; line-height: 1.4;
+      border-radius: 12px; padding: 2rem 1.5rem; position: relative;
+    }
+    .arch-layer {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.75rem; margin-bottom: 0.5rem; flex-wrap: wrap;
+    }
+    .arch-arrow {
+      text-align: center; color: var(--text-muted); font-size: 1.2rem;
+      margin: 0.25rem 0; letter-spacing: 2rem;
+    }
+    .arch-node {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.6rem 1rem; text-align: center;
+      font-size: 0.8rem; min-width: 120px; transition: border-color 0.2s;
+    }
+    .arch-node:hover { border-color: var(--accent); }
+    .arch-node .node-icon { font-size: 1.2rem; margin-bottom: 0.2rem; }
+    .arch-node .node-label { font-weight: 600; color: var(--text); }
+    .arch-node .node-desc { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .arch-node.highlight { border-color: var(--accent); background: rgba(88, 166, 255, 0.05); }
+    .arch-node.green-hl { border-color: var(--green); background: rgba(63, 185, 80, 0.05); }
+    .arch-node.orange-hl { border-color: var(--orange); background: rgba(210, 153, 34, 0.05); }
+    .arch-label {
+      font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.08em; margin: 1rem 0 0.5rem; text-align: center;
+      font-weight: 600;
+    }
+    .arch-divider {
+      border: none; border-top: 1px dashed var(--border); margin: 1rem 0;
     }
 
     /* Patterns */
@@ -176,23 +203,131 @@
 
     <div class="arch">
       <h2>Architecture</h2>
-      <pre>
-Agent writes SQL
-      │
-      ▼
-TiDB Server (stateless — parse, optimize, route)
-      │
-      ▼
-TiKV (hot cache — ack to agent fast)
-      │
-      ▼
-S3 Object Storage (source of truth — durable, cheap, infinite)
-      │
-      ▼
-Background Pool (compaction, DDL — isolated, zero OLTP impact)
-      │
-      ▼
-TiCI (columnar + inverted + vector indexes — near real-time)</pre>
+      <div class="arch-diagram">
+        <div class="arch-label">AI Agent Layer</div>
+        <div class="arch-layer">
+          <div class="arch-node highlight">
+            <div class="node-icon">🤖</div>
+            <div class="node-label">Agent A</div>
+            <div class="node-desc">Memory writes</div>
+          </div>
+          <div class="arch-node highlight">
+            <div class="node-icon">🤖</div>
+            <div class="node-label">Agent B</div>
+            <div class="node-desc">Context queries</div>
+          </div>
+          <div class="arch-node highlight">
+            <div class="node-icon">🤖</div>
+            <div class="node-label">Agent C</div>
+            <div class="node-desc">Task coordination</div>
+          </div>
+        </div>
+
+        <div class="arch-arrow">▼ ▼ ▼</div>
+
+        <div class="arch-label">Stateless Compute</div>
+        <div class="arch-layer">
+          <div class="arch-node">
+            <div class="node-icon">⚡</div>
+            <div class="node-label">TiProxy</div>
+            <div class="node-desc">Route & balance</div>
+          </div>
+          <div class="arch-node">
+            <div class="node-icon">🔧</div>
+            <div class="node-label">TiDB Server</div>
+            <div class="node-desc">Parse · Optimize · Execute</div>
+          </div>
+          <div class="arch-node">
+            <div class="node-icon">🔧</div>
+            <div class="node-label">TiDB Server</div>
+            <div class="node-desc">Parse · Optimize · Execute</div>
+          </div>
+        </div>
+
+        <div class="arch-arrow">▼ ▼ ▼</div>
+
+        <div class="arch-label">Hot Cache Layer</div>
+        <div class="arch-layer">
+          <div class="arch-node">
+            <div class="node-icon">💾</div>
+            <div class="node-label">TiKV</div>
+            <div class="node-desc">Read/Write cache</div>
+          </div>
+          <div class="arch-node">
+            <div class="node-icon">💾</div>
+            <div class="node-label">TiKV</div>
+            <div class="node-desc">Read/Write cache</div>
+          </div>
+          <div class="arch-node">
+            <div class="node-icon">💾</div>
+            <div class="node-label">TiKV</div>
+            <div class="node-desc">Read/Write cache</div>
+          </div>
+        </div>
+
+        <div class="arch-arrow">▼ ▼ ▼</div>
+
+        <div class="arch-label">Source of Truth</div>
+        <div class="arch-layer">
+          <div class="arch-node green-hl" style="min-width: 90%; padding: 1rem;">
+            <div class="node-icon">☁️</div>
+            <div class="node-label">Object Storage (S3)</div>
+            <div class="node-desc">Durable · Cheap · Infinite · The single source of truth</div>
+          </div>
+        </div>
+
+        <hr class="arch-divider">
+
+        <div class="arch-label">Isolated Background Compute</div>
+        <div class="arch-layer">
+          <div class="arch-node orange-hl">
+            <div class="node-icon">🔄</div>
+            <div class="node-label">Compaction</div>
+            <div class="node-desc">Never blocks OLTP</div>
+          </div>
+          <div class="arch-node orange-hl">
+            <div class="node-icon">📥</div>
+            <div class="node-label">Import / DDL</div>
+            <div class="node-desc">5.53M rows/s</div>
+          </div>
+          <div class="arch-node orange-hl">
+            <div class="node-icon">📊</div>
+            <div class="node-label">Stats</div>
+            <div class="node-desc">Auto-analyze</div>
+          </div>
+        </div>
+
+        <hr class="arch-divider">
+
+        <div class="arch-label">TiCI — Pluggable Index Engines</div>
+        <div class="arch-layer">
+          <div class="arch-node">
+            <div class="node-icon">📊</div>
+            <div class="node-label">Columnar</div>
+            <div class="node-desc">OLAP analytics</div>
+          </div>
+          <div class="arch-node">
+            <div class="node-icon">🔍</div>
+            <div class="node-label">Inverted</div>
+            <div class="node-desc">Full-text search</div>
+          </div>
+          <div class="arch-node">
+            <div class="node-icon">🧬</div>
+            <div class="node-label">Vector</div>
+            <div class="node-desc">AI embeddings</div>
+          </div>
+        </div>
+
+        <hr class="arch-divider">
+
+        <div class="arch-label">RU Metering</div>
+        <div class="arch-layer">
+          <div class="arch-node" style="min-width: 90%; padding: 0.8rem;">
+            <div class="node-label" style="font-size: 0.85rem;">Query → 12 RU &nbsp;│&nbsp; Query → 340 RU &nbsp;│&nbsp; Idle → 0 RU</div>
+            <div class="node-desc">Per-query cost attribution · Per-agent billing · Idle = free</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="patterns">
