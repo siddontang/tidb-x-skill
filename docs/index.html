@@ -133,6 +133,18 @@
     .links a.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
     .links a.primary:hover { opacity: 0.9; color: var(--bg); }
 
+    /* Demo */
+    .demo { margin: 3rem 0; text-align: center; }
+    .demo h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .demo-btn {
+      display: inline-block; padding: 0.8rem 2rem; border-radius: 8px;
+      font-size: 1rem; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: var(--bg); border: 1px solid var(--accent);
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .demo-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .demo-btn:active { transform: translateY(0); }
+
     footer { text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 3rem 0 2rem; border-top: 1px solid var(--border); margin-top: 3rem; }
     footer a { color: var(--accent); text-decoration: none; }
 
@@ -372,6 +384,60 @@
       </div>
     </div>
 
+    <!-- Live Demo -->
+    <div class="demo" id="demo">
+      <h2>Live Demo</h2>
+      <p style="color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">Get your own MySQL-compatible database in 2 seconds. No signup. Free.</p>
+      
+      <div id="demo-start">
+        <button class="demo-btn" onclick="provisionDB()">
+          <span id="btn-text">⚡ Provision a Database</span>
+          <span id="btn-loading" style="display:none;">⏳ Provisioning...</span>
+        </button>
+      </div>
+
+      <div id="demo-result" style="display:none;">
+        <div class="install-box" style="text-align:left;">
+          <h3 style="color:var(--green);">✅ Your database is ready!</h3>
+          <div style="margin-top:1rem;">
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem;">Connect:</div>
+            <div class="code-block" id="demo-connect" onclick="navigator.clipboard.writeText(this.innerText.replace('click to copy','').trim())">
+              <span class="copy-hint">click to copy</span>
+            </div>
+          </div>
+          <div style="margin-top:1rem;">
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem;">Connection String:</div>
+            <div class="code-block" id="demo-connstr" onclick="navigator.clipboard.writeText(this.innerText.replace('click to copy','').trim())" style="word-break:break-all;">
+              <span class="copy-hint">click to copy</span>
+            </div>
+          </div>
+          <div style="margin-top:1rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <span class="badge" id="demo-expires" style="font-size:0.75rem;"></span>
+            <a id="demo-claim" href="#" target="_blank" class="badge green" style="text-decoration:none; font-size:0.75rem;">🔗 Claim to make permanent (free)</a>
+          </div>
+          <div style="margin-top:1.25rem;">
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.25rem;">Try it — paste this SQL:</div>
+            <div class="code-block" onclick="navigator.clipboard.writeText(this.innerText.replace('click to copy','').trim())">CREATE TABLE agent_memory (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  agent_id VARCHAR(64),
+  content TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO agent_memory (agent_id, content)
+VALUES ('my-agent', 'Hello from TiDB X!');
+
+SELECT * FROM agent_memory;<span class="copy-hint">click to copy</span></div>
+          </div>
+        </div>
+        <button class="demo-btn" style="background:var(--surface); color:var(--text); border-color:var(--border); margin-top:1rem;" onclick="provisionDB()">
+          Provision Another
+        </button>
+      </div>
+
+      <div id="demo-error" style="display:none; color:var(--red); margin-top:1rem; font-size:0.9rem;"></div>
+    </div>
+
     <div class="links">
       <a href="https://tidbcloud.com/free-trial/" class="primary">Try Free</a>
       <a href="https://github.com/siddontang/tidb-x-skill">GitHub</a>
@@ -385,5 +451,60 @@
     </footer>
 
   </div>
+
+  <script>
+  async function provisionDB() {
+    const btnText = document.getElementById('btn-text');
+    const btnLoading = document.getElementById('btn-loading');
+    const result = document.getElementById('demo-result');
+    const error = document.getElementById('demo-error');
+    
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+    result.style.display = 'none';
+    error.style.display = 'none';
+
+    try {
+      const res = await fetch('https://zero.tidbapi.com/v1alpha1/instances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag: 'tidb-x-skill-demo' })
+      });
+
+      if (!res.ok) throw new Error('Provisioning failed (' + res.status + ')');
+
+      const data = await res.json();
+      const conn = data.instance.connection;
+      const connStr = data.instance.connectionString || 
+        `mysql://${conn.username}:${conn.password}@${conn.host}:${conn.port}/`;
+      const claimUrl = data.instance.claimInfo?.claimUrl;
+      const expires = new Date(data.instance.expiresAt).toLocaleDateString();
+
+      document.getElementById('demo-connect').innerHTML = 
+        `mysql -u ${conn.username} -p'${conn.password}' -h ${conn.host} -P ${conn.port} --ssl-mode=REQUIRED` +
+        '<span class="copy-hint">click to copy</span>';
+      
+      document.getElementById('demo-connstr').innerHTML = 
+        connStr + '<span class="copy-hint">click to copy</span>';
+      
+      document.getElementById('demo-expires').textContent = '⏱ Expires: ' + expires;
+      
+      if (claimUrl) {
+        document.getElementById('demo-claim').href = claimUrl;
+        document.getElementById('demo-claim').style.display = 'inline-block';
+      } else {
+        document.getElementById('demo-claim').style.display = 'none';
+      }
+
+      result.style.display = 'block';
+    } catch (e) {
+      error.textContent = '❌ ' + e.message + '. Try again or visit tidbcloud.com/free-trial/';
+      error.style.display = 'block';
+    } finally {
+      btnText.style.display = 'inline';
+      btnLoading.style.display = 'none';
+    }
+  }
+  </script>
 </body>
 </html>
