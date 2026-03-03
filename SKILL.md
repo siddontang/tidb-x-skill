@@ -312,3 +312,266 @@ Agent writes memory
         ▼
    TiCI indexes update (columnar + vector + inverted)
 ```
+
+---
+
+# Verified Examples (All tested on TiDB Cloud Zero)
+
+## Example 1: Cross-Agent Memory Sharing (AI Customer Support)
+
+50 agents share customer context. Agent A talks to a customer Monday, Agent B picks up Wednesday — no context lost.
+
+```sql
+CREATE TABLE agent_memory (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id VARCHAR(64),
+  customer_id VARCHAR(64),
+  agent_id VARCHAR(64),
+  content TEXT,
+  type VARCHAR(32),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_customer (tenant_id, customer_id)
+);
+
+-- Agent A stores interaction
+INSERT INTO agent_memory (tenant_id, customer_id, agent_id, content, type)
+VALUES ('acme', 'cust_123', 'agent_a',
+  'Customer frustrated about billing. Offered 20% discount. They said they will think about it.',
+  'resolution');
+
+-- Agent B queries shared memory on Wednesday
+SELECT content, created_at FROM agent_memory
+WHERE customer_id = 'cust_123' ORDER BY created_at DESC LIMIT 10;
+```
+
+**Why TiDB X:** 50 agents writing simultaneously, millions of customers, each tenant isolated. RU billing = pay for actual lookups.
+
+---
+
+## Example 2: Long-Running Agent Context (Coding Agent)
+
+A coding agent works on a PR for 3 hours. Context persists across tool calls, retries, crashes.
+
+```sql
+CREATE TABLE agent_context (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  session_id VARCHAR(128),
+  step INT,
+  type VARCHAR(32),      -- 'observation', 'tool_call', 'tool_output', 'decision', 'action'
+  content TEXT,
+  tokens INT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_session (session_id, step)
+);
+
+-- Agent appends context (append-only, never update)
+INSERT INTO agent_context (session_id, step, type, content, tokens)
+VALUES ('pr_fix_auth', 42, 'tool_output',
+  '{"file": "auth.ts", "diff": "+validate(token)..."}', 1200);
+
+-- On crash/resume: smart reload (recent steps + all decisions)
+SELECT * FROM agent_context
+WHERE session_id = 'pr_fix_auth'
+AND (step > 22 OR type = 'decision')
+ORDER BY step ASC;
+```
+
+**Why TiDB X:** Context records can be MB-level. Object-storage backbone handles large values without pressuring local disks.
+
+---
+
+## Example 3: Multi-Agent Task Coordination
+
+4 agents work in parallel — scraper, enricher, writer, reviewer. Shared task ledger prevents duplicate work.
+
+```sql
+CREATE TABLE tasks (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id VARCHAR(64),
+  startup_name VARCHAR(255),
+  status VARCHAR(32) DEFAULT 'pending',
+  agent_id VARCHAR(64),
+  input JSON,
+  output JSON,
+  claimed_at TIMESTAMP NULL,
+  completed_at TIMESTAMP NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_status (status)
+);
+
+-- Claim a task (optimistic locking)
+UPDATE tasks SET status = 'claimed', agent_id = 'enricher_2', claimed_at = NOW()
+WHERE status = 'pending' AND startup_name = 'Union.ai' AND claimed_at IS NULL;
+
+-- Complete with output
+UPDATE tasks SET status = 'done',
+  output = '{"investors": "NEA, Insight Partners"}',
+  completed_at = NOW()
+WHERE startup_name = 'Union.ai' AND agent_id = 'enricher_2';
+```
+
+**Why TiDB X:** ACID transactions prevent "two agents both succeed" problem. Idle agents cost zero RU.
+
+---
+
+## Example 4: Agent Memory with Provenance (Healthcare AI)
+
+Medical AI must track not just what it said, but why — for regulatory compliance.
+
+```sql
+CREATE TABLE medical_memory (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  patient_id VARCHAR(64),
+  agent_id VARCHAR(64),
+  content TEXT,
+  source JSON,       -- {"guideline": "WHO-2026-diabetes", "confidence": 0.92}
+  reasoning TEXT,     -- why the agent made this recommendation
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_patient (patient_id)
+);
+
+INSERT INTO medical_memory (patient_id, agent_id, content, source, reasoning)
+VALUES ('p_456', 'med_agent_1', 'Recommend metformin 500mg twice daily',
+  '{"guideline": "WHO-2026-diabetes", "confidence": 0.92}',
+  'Patient HbA1c = 7.8%, above 7% threshold. Recommending metformin per WHO guideline.');
+
+-- Audit: show recommendations with high confidence
+SELECT content, source, reasoning FROM medical_memory
+WHERE patient_id = 'p_456'
+AND JSON_EXTRACT(source, '$.confidence') > 0.8
+ORDER BY created_at DESC;
+```
+
+**Why TiDB X:** Queryable provenance — not just "what" but "why and based on what." Multi-tenant isolation ensures patient data never leaks.
+
+---
+
+## Example 5: Blockchain Transaction Monitor (Web3)
+
+AI agents monitor on-chain activity across Ethereum, Solana, Base. Shared state for cross-chain correlation.
+
+```sql
+CREATE TABLE chain_events (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  chain VARCHAR(16),          -- 'ethereum', 'solana', 'base'
+  tx_hash VARCHAR(128),
+  block_number BIGINT,
+  from_addr VARCHAR(64),
+  to_addr VARCHAR(64),
+  value_wei VARCHAR(78),      -- uint256 as string
+  method VARCHAR(64),         -- 'transfer', 'swap', 'stake'
+  agent_id VARCHAR(64),
+  tags JSON,                  -- ["whale", "defi", "suspicious"]
+  raw_data JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_chain_block (chain, block_number),
+  INDEX idx_addr (from_addr)
+);
+
+-- Whale watcher agent detects large swap
+INSERT INTO chain_events (chain, tx_hash, block_number, from_addr, to_addr,
+  value_wei, method, agent_id, tags)
+VALUES ('ethereum', '0xabc...', 19500000, '0xwhale...', '0xuniswap...',
+  '50000000000000000000', 'swap', 'whale_watcher', '["whale", "defi"]');
+
+-- Query: whale activity
+SELECT chain, tx_hash, method, value_wei FROM chain_events
+WHERE JSON_CONTAINS(tags, '"whale"')
+ORDER BY created_at DESC;
+
+-- Cross-chain correlation: same wallet across chains
+SELECT chain, COUNT(*) as txns FROM chain_events
+WHERE from_addr = '0xwhale...'
+GROUP BY chain;
+```
+
+**Why TiDB X:** Billions of chain events, multi-chain indexing, real-time queries. RU billing = monitoring quiet chains costs nothing until activity spikes.
+
+---
+
+## Example 6: DeFi Portfolio Agent Memory (Web3)
+
+Each user's DeFi agent manages positions across protocols. Tracks strategy, decisions, and reasoning.
+
+```sql
+CREATE TABLE defi_positions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id VARCHAR(64),       -- user's wallet or agent token
+  protocol VARCHAR(64),        -- 'uniswap', 'aave', 'lido'
+  chain VARCHAR(16),
+  position_type VARCHAR(32),   -- 'lp', 'lending', 'staking'
+  token_pair VARCHAR(64),
+  amount DECIMAL(36,18),
+  entry_price DECIMAL(36,18),
+  current_value DECIMAL(36,18),
+  strategy JSON,               -- {"type": "yield_farm", "target_apy": 12, "max_il": 5}
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_tenant (tenant_id)
+);
+
+CREATE TABLE agent_decisions (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id VARCHAR(64),
+  action VARCHAR(32),          -- 'rebalance', 'harvest', 'exit', 'enter'
+  reasoning TEXT,
+  tx_hash VARCHAR(128),
+  profit_loss DECIMAL(36,18),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_tenant_action (tenant_id, action)
+);
+
+-- Agent exits LP due to impermanent loss
+INSERT INTO agent_decisions (tenant_id, action, reasoning, tx_hash, profit_loss)
+VALUES ('wallet_0x123', 'exit',
+  'Impermanent loss hit 5.2% on ETH/USDC LP. Strategy threshold is 5%. Exiting to preserve capital.',
+  '0xdef...', -234.56);
+
+-- User asks: "Why did you sell my position?"
+SELECT action, reasoning, profit_loss FROM agent_decisions
+WHERE tenant_id = 'wallet_0x123' AND action = 'exit'
+ORDER BY created_at DESC LIMIT 1;
+
+-- Portfolio summary
+SELECT protocol, chain, token_pair, current_value
+FROM defi_positions
+WHERE tenant_id = 'wallet_0x123' AND current_value > 0
+ORDER BY current_value DESC;
+```
+
+**Why TiDB X:** Millions of users × positions × chains. Per-wallet tenant isolation. Agent decisions are auditable — crucial for financial compliance.
+
+---
+
+## Example 7: Smart Contract Event Indexer (Web3)
+
+AI agent indexes and interprets smart contract events. Builds a queryable knowledge base.
+
+```sql
+CREATE TABLE contract_events (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  chain VARCHAR(16),
+  contract_addr VARCHAR(64),
+  event_name VARCHAR(128),     -- 'Swap', 'Transfer', 'LiquidityAdded'
+  decoded_args JSON,
+  block_number BIGINT,
+  block_timestamp TIMESTAMP,
+  agent_interpretation TEXT,   -- AI-generated summary
+  INDEX idx_contract_event (contract_addr, event_name)
+);
+
+-- Index a Uniswap swap with AI interpretation
+INSERT INTO contract_events (chain, contract_addr, event_name,
+  decoded_args, block_number, block_timestamp, agent_interpretation)
+VALUES ('ethereum', '0xUniV3...', 'Swap',
+  '{"tokenIn": "USDC", "amountIn": 5000000, "tokenOut": "ETH", "amountOut": 2.45}',
+  19500000, NOW(),
+  'Large USDC→ETH swap ($5M). Possible institutional accumulation.');
+
+-- Aggregate: total ETH bought via swaps
+SELECT SUM(CAST(JSON_EXTRACT(decoded_args, '$.amountOut') AS DECIMAL(36,18))) as total_eth
+FROM contract_events
+WHERE contract_addr = '0xUniV3...' AND event_name = 'Swap'
+AND JSON_EXTRACT(decoded_args, '$.tokenOut') = 'ETH';
+```
+
+**Why TiDB X:** Blockchain events are infinite append-only data — perfect for object-storage backbone. TiCI columnar index enables analytics over billions of events.
