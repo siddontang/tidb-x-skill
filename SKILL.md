@@ -217,3 +217,98 @@ mkdir -p ~/.openclaw/skills/tidb-x && curl -so ~/.openclaw/skills/tidb-x/SKILL.m
 - [TiDB for AIaaS](https://medium.com/@siddontang/why-tidb-is-the-best-database-for-ai-as-a-service-aiaas-08fe305489af)
 - [The New Stack: S3 is the new network](https://thenewstack.io/tidb-x-open-source-database/)
 - [TiDB X Architecture Docs](https://docs.pingcap.com/tidbcloud/tidb-x-architecture/)
+
+---
+
+# Architecture (ASCII)
+
+```
+                        ┌─────────────────────────────────────────┐
+                        │            AI Agent Layer               │
+                        │  Agent A   Agent B   Agent C   ...      │
+                        └────────┬───────┬───────┬────────────────┘
+                                 │       │       │
+                                 ▼       ▼       ▼
+                        ┌─────────────────────────────────────────┐
+                        │           TiProxy / Gateway             │
+                        │    Connection routing, load balancing    │
+                        └────────────────┬────────────────────────┘
+                                         │
+              ┌──────────────────────────┼──────────────────────────┐
+              │                          │                          │
+              ▼                          ▼                          ▼
+     ┌────────────────┐        ┌────────────────┐        ┌────────────────┐
+     │   TiDB Server  │        │   TiDB Server  │        │   TiDB Server  │
+     │   (Stateless)  │        │   (Stateless)  │        │   (Stateless)  │
+     │  SQL Parse/Opt │        │  SQL Parse/Opt │        │  SQL Parse/Opt │
+     └───────┬────────┘        └───────┬────────┘        └───────┬────────┘
+             │                         │                         │
+             └─────────────────────────┼─────────────────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+              ▼                        ▼                        ▼
+     ┌────────────────┐      ┌────────────────┐      ┌────────────────┐
+     │   TiKV Node    │      │   TiKV Node    │      │   TiKV Node    │
+     │  (Hot Cache)   │      │  (Hot Cache)   │      │  (Hot Cache)   │
+     │  Read/Write    │      │  Read/Write    │      │  Read/Write    │
+     └───────┬────────┘      └───────┬────────┘      └───────┬────────┘
+             │                       │                       │
+             └───────────────────────┼───────────────────────┘
+                                     │
+                                     ▼
+     ┌───────────────────────────────────────────────────────────────┐
+     │                    Object Storage (S3)                        │
+     │              ┌─────────────────────────────┐                  │
+     │              │   Source of Truth (SST)      │                  │
+     │              │   Durable, Cheap, Infinite   │                  │
+     │              └─────────────────────────────┘                  │
+     └───────────────────────────────────────────────────────────────┘
+
+     ┌───────────────────────────────────────────────────────────────┐
+     │              Background Compute Pool (Elastic)                │
+     │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+     │   │Compaction│  │  Import  │  │   DDL    │  │  Stats   │    │
+     │   └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
+     │         Isolated from OLTP — zero interference               │
+     └───────────────────────────────────────────────────────────────┘
+
+     ┌───────────────────────────────────────────────────────────────┐
+     │                    TiCI (Column Index)                        │
+     │   ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+     │   │ Columnar │  │ Inverted │  │  Vector  │                  │
+     │   │ (OLAP)   │  │ (Search) │  │  (AI)    │                  │
+     │   └──────────┘  └──────────┘  └──────────┘                  │
+     │         Near-real-time CDC from object storage               │
+     └───────────────────────────────────────────────────────────────┘
+
+     ┌───────────────────────────────────────────────────────────────┐
+     │                   RU Metering Layer                           │
+     │                                                               │
+     │   Query A ──► 12 RU    Query B ──► 340 RU                    │
+     │   Query C ──► 3 RU     Query D ──► 1,200 RU                  │
+     │                                                               │
+     │   Per-query cost attribution • Per-agent billing              │
+     └───────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow
+
+```
+Agent writes memory
+        │
+        ▼
+   TiDB Server (parse SQL, optimize, route)
+        │
+        ▼
+   TiKV (buffer in hot cache, ack to agent)
+        │
+        ▼
+   Async flush to S3 (durable, cheap)
+        │
+        ▼
+   Background pool compacts (isolated, no OLTP impact)
+        │
+        ▼
+   TiCI indexes update (columnar + vector + inverted)
+```
