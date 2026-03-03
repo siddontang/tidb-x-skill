@@ -7,18 +7,35 @@ description: TiDB X — object-storage-native distributed SQL for AI agent workl
 
 **Object-storage-native, elastic, multi-tenant SQL engine for AI agents. Charged-by-query (RU).**
 
-## Quick Start
+## Quick Start (TiDB Cloud Zero)
+
+Get a free MySQL-compatible database instantly. No sign-up, no billing.
 
 ```bash
-# Get a free TiDB Cloud instance (30-day Zero instance, no credit card)
-curl -s -X POST "https://zero.tidbapi.com/v1alpha1/instances" -H "Content-Type: application/json"
-# Returns: { host, port, username, password, expiresAt }
+# Provision (single API call, no auth required)
+curl -s -X POST "https://zero.tidbapi.com/v1alpha1/instances" \
+  -H "Content-Type: application/json" \
+  -d '{"tag":"my-agent"}' | tee tidb-zero.json
 
-# Connect
-mysql -u <username> -p<password> -h <host> -P 4000 --ssl-mode=REQUIRED
+# Response includes: host, port, username, password, expiresAt, claimUrl
+# Extract connection info
+jq -r '.instance.connectionString' tidb-zero.json
+
+# Connect (always use TLS)
+export MYSQL_PWD=$(jq -r '.instance.connection.password' tidb-zero.json)
+mysql -u $(jq -r '.instance.connection.username' tidb-zero.json) \
+  -h $(jq -r '.instance.connection.host' tidb-zero.json) \
+  -P 4000 --ssl-mode=REQUIRED
 ```
 
-Or sign up at https://tidbcloud.com/free-trial/
+**Claim your instance:** The response includes `claimInfo.claimUrl` — open it to convert the ephemeral instance into a permanent **TiDB Cloud Starter** (free). Without claiming, it auto-expires in 30 days.
+
+```bash
+# Get claim URL
+jq -r '.instance.claimInfo.claimUrl' tidb-zero.json
+```
+
+Or sign up directly at https://tidbcloud.com/free-trial/
 
 ---
 
