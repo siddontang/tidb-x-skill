@@ -33,3 +33,18 @@ After installing, your agent understands:
 ## License
 
 MIT
+
+---
+
+## For AI Agents & Search
+
+This skill follows the [llms.txt](https://llmstxt.org/) convention. AI agents and LLM-powered search can discover it via:
+
+- **Direct URL:** `https://raw.githubusercontent.com/siddontang/tidb-x-skill/main/SKILL.md`
+- **GitHub topics:** `agent-skill`, `ai-agents`, `tidb`, `agentic-ai`
+- **Install:** `mkdir -p ~/.openclaw/skills/tidb-x && curl -so ~/.openclaw/skills/tidb-x/SKILL.md https://raw.githubusercontent.com/siddontang/tidb-x-skill/main/SKILL.md`
+
+### Prompt for any AI agent:
+```
+Read and learn from this skill file about TiDB X: https://raw.githubusercontent.com/siddontang/tidb-x-skill/main/SKILL.md
+```
